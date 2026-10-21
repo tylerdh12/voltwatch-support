@@ -1,0 +1,38 @@
+name: CI
+on:
+  push:
+    branches: [main]
+  pull_request:
+  schedule:
+    # Weekly: the App Store listing links to these pages, so check they are live.
+    - cron: '23 15 * * 1'
+  workflow_dispatch:
+permissions:
+  contents: read
+jobs:
+  html:
+    name: HTML validation and links
+    # Free self-hosted runner on omarchy; fork PRs never run on it.
+    if: github.event_name != 'pull_request' || github.event.pull_request.head.repo.full_name == github.repository
+    runs-on: [self-hosted, omarchy]
+    timeout-minutes: 10
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          persist-credentials: false
+      - name: W3C Nu HTML validator (errors fail)
+        run: docker run --rm -v "$PWD:/w" -w /w ghcr.io/validator/validator:latest vnu --errors-only *.html
+      - name: Local links resolve
+        run: |
+          status=0
+          for href in $(grep -ohE 'href="[^"#:]+"' ./*.html | sed -E 's/href="([^"]+)"/\1/' | sort -u); do
+            [ -f "$href" ] || { echo "broken local link: $href"; status=1; }
+          done
+          exit $status
+      - name: Published pages are live
+        if: github.event_name != 'pull_request'
+        run: |
+          for page in "" support.html privacy.html; do
+            curl -fsS -o /dev/null -w "%{http_code} https://tylerdh12.github.io/voltwatch-support/$page\n" \
+              "https://tylerdh12.github.io/voltwatch-support/$page"
+          done
